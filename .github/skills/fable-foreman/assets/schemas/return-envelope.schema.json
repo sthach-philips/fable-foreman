@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Foreman return envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "role", "kind", "disposition", "model_requested", "model_actual", "model_family", "summary_line", "concerns", "budget_used"],
+  "properties": {
+    "task_id": {"type": "string", "format": "uuid"},
+    "role": {"enum": ["scout", "worker", "verifier"]},
+    "kind": {"enum": ["scout", "worker", "verifier"]},
+    "disposition": {"enum": ["complete", "complete_with_concerns", "needs_context", "needs_redispatch", "blocked", "failed"]},
+    "status": {"enum": ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"]},
+    "verdict": {"enum": ["PASS", "FAIL", "PASS_WITH_NOTES"]},
+    "model_requested": {"type": "string", "minLength": 1},
+    "model_actual": {"type": "string", "minLength": 1},
+    "model_family": {"enum": ["anthropic", "openai", "google", "unknown"]},
+    "artifact_path": {"type": "string", "pattern": "^\\.foreman/scratch/.+\\.json$"},
+    "summary_line": {"type": "string", "minLength": 1},
+    "concerns": {"type": "array", "items": {"type": "string"}},
+    "budget_used": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["premium_requests", "notes"],
+      "properties": {
+        "premium_requests": {"type": ["integer", "null"], "minimum": 0},
+        "notes": {"type": "string"}
+      }
+    },
+    "findings": {"$ref": "#/$defs/findings"},
+    "not_checked": {"type": "array", "items": {"type": "string"}},
+    "redispatch": {"$ref": "#/$defs/redispatch"}
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "line", "fact"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "line": {"type": ["integer", "string"]},
+        "fact": {"type": "string", "minLength": 1}
+      }
+    },
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "redispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "needs", "attempted", "partial", "partial_artifact_path", "recommended"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1},
+        "needs": {"type": "string", "minLength": 1},
+        "attempted": {"type": "array", "items": {"type": "string"}},
+        "partial": {"type": "boolean"},
+        "partial_artifact_path": {"type": ["string", "null"]},
+        "recommended": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["seat_change", "effort", "approach_hint"],
+          "properties": {
+            "seat_change": {"enum": ["none", "up", "takeover"]},
+            "effort": {"type": "string", "minLength": 1},
+            "approach_hint": {"type": "string"}
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "scout"}}, "required": ["kind"]},
+      "then": {
+        "properties": {"role": {"const": "scout"}},
+        "required": ["status", "findings", "not_checked"],
+        "not": {"anyOf": [{"required": ["artifact_path"]}, {"required": ["verdict"]}]}
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "worker"}}, "required": ["kind"]},
+      "then": {
+        "properties": {"role": {"const": "worker"}},
+        "required": ["status", "artifact_path"],
+        "not": {"anyOf": [{"required": ["verdict"]}, {"required": ["findings"]}]}
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "verifier"}}, "required": ["kind"]},
+      "then": {
+        "properties": {"role": {"const": "verifier"}},
+        "required": ["verdict", "artifact_path"],
+        "not": {"anyOf": [{"required": ["status"]}, {"required": ["findings"]}]}
+      }
+    },
+    {
+      "if": {"properties": {"disposition": {"enum": ["needs_context", "needs_redispatch", "blocked", "failed"]}}, "required": ["disposition"]},
+      "then": {"required": ["redispatch"]},
+      "else": {"not": {"required": ["redispatch"]}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "DONE"}}, "required": ["status"]},
+      "then": {"properties": {"disposition": {"const": "complete"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "DONE_WITH_CONCERNS"}}, "required": ["status"]},
+      "then": {"properties": {"disposition": {"const": "complete_with_concerns"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "NEEDS_CONTEXT"}}, "required": ["status"]},
+      "then": {"properties": {"disposition": {"const": "needs_context"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "BLOCKED"}}, "required": ["status"]},
+      "then": {"properties": {"disposition": {"enum": ["needs_redispatch", "blocked"]}}}
+    },
+    {
+      "if": {"properties": {"verdict": {"const": "PASS"}}, "required": ["verdict"]},
+      "then": {"properties": {"disposition": {"const": "complete"}}}
+    },
+    {
+      "if": {"properties": {"verdict": {"const": "PASS_WITH_NOTES"}}, "required": ["verdict"]},
+      "then": {"properties": {"disposition": {"const": "complete_with_concerns"}}}
+    },
+    {
+      "if": {"properties": {"verdict": {"const": "FAIL"}}, "required": ["verdict"]},
+      "then": {"properties": {"disposition": {"const": "failed"}}}
+    }
+  ]
+}

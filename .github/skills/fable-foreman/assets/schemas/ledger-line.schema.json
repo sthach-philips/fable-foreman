@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Foreman ledger event",
+  "oneOf": [
+    {"$ref": "#/$defs/baseline"},
+    {"$ref": "#/$defs/task"},
+    {"$ref": "#/$defs/routing"},
+    {"$ref": "#/$defs/attempt"},
+    {"$ref": "#/$defs/escalation"},
+    {"$ref": "#/$defs/decision"},
+    {"$ref": "#/$defs/scratch"}
+  ],
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": ["type", "event_id", "ts"],
+      "properties": {
+        "type": {"type": "string"},
+        "event_id": {"type": "string", "format": "uuid"},
+        "ts": {"type": "string", "format": "date-time"}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["premium_requests", "notes"],
+      "properties": {
+        "premium_requests": {"type": ["integer", "null"], "minimum": 0},
+        "notes": {"type": "string"}
+      }
+    },
+    "recommended": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seat_change", "effort", "approach_hint"],
+      "properties": {
+        "seat_change": {"enum": ["none", "up", "takeover"]},
+        "effort": {"type": "string", "minLength": 1},
+        "approach_hint": {"type": "string"}
+      }
+    },
+    "redispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "attempted", "recommended"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1},
+        "attempted": {"type": "array", "items": {"type": "string"}},
+        "recommended": {"$ref": "#/$defs/recommended"}
+      }
+    },
+    "baseline": {
+      "allOf": [
+        {"$ref": "#/$defs/event"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "event_id", "commit", "git_status", "branch", "repo_root", "ts"],
+          "properties": {
+            "type": {"const": "baseline"},
+            "event_id": {"type": "string", "format": "uuid"},
+            "commit": {"type": "string", "minLength": 1},
+            "git_status": {"type": "string"},
+            "branch": {"type": "string", "minLength": 1},
+            "repo_root": {"type": "string", "minLength": 1},
+            "ts": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "task": {
+      "allOf": [
+        {"$ref": "#/$defs/event"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "event_id", "task_id", "original_task", "title", "task_class", "state", "owned_paths", "ts"],
+          "properties": {
+            "type": {"const": "task"},
+            "event_id": {"type": "string", "format": "uuid"},
+            "task_id": {"type": "string", "format": "uuid"},
+            "original_task": {"type": "string", "minLength": 1},
+            "depends_on": {"type": "string", "format": "uuid"},
+            "title": {"type": "string", "minLength": 1},
+            "task_class": {"enum": ["FRONTIER", "WORKHORSE", "FAST"]},
+            "state": {"enum": ["PENDING", "DISPATCHED", "REPORTED", "VERIFYING", "VERIFIED", "FAILED", "ACCEPTED", "SELF_REVIEWED", "ESCALATED"]},
+            "owned_paths": {"type": "array", "items": {"type": "string"}},
+            "ts": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "routing": {
+      "allOf": [
+        {"$ref": "#/$defs/event"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "event_id", "task_id", "task_class", "seat", "model_requested", "model_actual", "model_family", "effort", "why", "ts"],
+          "properties": {
+            "type": {"const": "routing"},
+            "event_id": {"type": "string", "format": "uuid"},
+            "task_id": {"type": "string", "format": "uuid"},
+            "task_class": {"enum": ["FRONTIER", "WORKHORSE", "FAST"]},
+            "seat": {"type": "string", "minLength": 1},
+            "model_requested": {"type": "string", "minLength": 1},
+            "model_actual": {"type": "string", "minLength": 1},
+            "model_family": {"enum": ["anthropic", "openai", "google", "unknown"]},
+            "effort": {"type": "string", "minLength": 1},
+            "why": {"type": "string", "minLength": 1},
+            "ts": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "attempt": {
+      "allOf": [
+        {"$ref": "#/$defs/event"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "event_id", "task_id", "generation", "attempt", "seat", "model_requested", "model_actual", "model_family", "disposition", "status_or_verdict", "checks", "issue", "resolution", "artifact_path", "budget_used", "ts"],
+          "properties": {
+            "type": {"const": "attempt"},
+            "event_id": {"type": "string", "format": "uuid"},
+            "task_id": {"type": "string", "format": "uuid"},
+            "generation": {"type": "integer", "minimum": 1},
+            "attempt": {"type": "integer", "minimum": 1, "maximum": 3},
+            "seat": {"type": "string", "minLength": 1},
+            "model_requested": {"type": "string", "minLength": 1},
+            "model_actual": {"type": "string", "minLength": 1},
+            "model_family": {"enum": ["anthropic", "openai", "google", "unknown"]},
+            "disposition": {"enum": ["complete", "complete_with_concerns", "needs_context", "needs_redispatch", "blocked", "failed"]},
+            "status_or_verdict": {"enum": ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED", "PASS", "FAIL", "PASS_WITH_NOTES", "LOST"]},
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["cmd", "result"],
+                "properties": {"cmd": {"type": "string"}, "result": {"type": "string"}}
+              }
+            },
+            "issue": {"type": ["string", "null"]},
+            "resolution": {"type": "string"},
+            "redispatch": {"$ref": "#/$defs/redispatch"},
+            "artifact_path": {"type": ["string", "null"]},
+            "budget_used": {"$ref": "#/$defs/budget"},
+            "ts": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "escalation": {
+      "allOf": [
+        {"$ref": "#/$defs/event"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "event_id", "task_id", "trigger", "attempts_used", "problem", "options", "recommendation", "answer", "ts"],
+          "properties": {
+            "type": {"const": "escalation"},
+            "event_id": {"type": "string", "format": "uuid"},
+            "task_id": {"type": "string", "format": "uuid"},
+            "trigger": {"enum": ["early", "cap"]},
+            "attempts_used": {"type": "integer", "minimum": 0, "maximum": 3},
+            "problem": {"type": "string", "minLength": 1},
+            "options": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["label", "pros", "cons"],
+                "properties": {
+                  "label": {"type": "string", "minLength": 1},
+                  "pros": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                  "cons": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+                }
+              }
+            },
+            "recommendation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["option", "why"],
+              "properties": {
+                "option": {"type": "string", "minLength": 1},
+                "why": {"type": "string", "minLength": 1}
+              }
+            },
+            "answer": {"type": "string", "minLength": 1},
+            "ts": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "decision": {
+      "allOf": [
+        {"$ref": "#/$defs/event"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "event_id", "text", "ts"],
+          "properties": {
+            "type": {"const": "decision"},
+            "event_id": {"type": "string", "format": "uuid"},
+            "task_id": {"type": "string", "format": "uuid"},
+            "text": {"type": "string", "minLength": 1},
+            "ts": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "scratch": {
+      "allOf": [
+        {"$ref": "#/$defs/event"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "event_id", "path", "ts"],
+          "properties": {
+            "type": {"const": "scratch"},
+            "event_id": {"type": "string", "format": "uuid"},
+            "task_id": {"type": "string", "format": "uuid"},
+            "path": {"type": "string", "minLength": 1},
+            "ts": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    }
+  }
+}

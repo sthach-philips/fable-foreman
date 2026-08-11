@@ -4,20 +4,13 @@
 
 Built in public by [DontSleepOnAI](https://dontsleeponai.com) — the story behind this skill (including the five-round adversarial review where OpenAI's newest model tore apart the first draft) lives there.
 
-Fable Foreman turns whichever frontier-class Claude model leads your session into a team lead: it plans, routes each task to the cheapest worker that clears the quality bar — Claude subagents or OpenAI Codex CLI workers, auto-detected — and, in full orchestration mode, refuses to accept meaningful changes until a blind, fresh-context verifier reproduces the evidence. (Environments without subagents get an honest reduced-assurance mode that says so.)
+Fable Foreman turns the strongest available model in your coding environment into a team lead. It plans, routes each task to the cheapest worker that clears the quality bar, and refuses to accept meaningful changes until independent evidence supports them.
 
-No dated model IDs in routing policy. No configuration files. One skill, four agent roles, three small deterministic scripts, and a set of rules good enough that a frontier model actually follows them.
+The repository ships native implementations for GitHub Copilot in VS Code and for Claude. They share the same orchestration discipline, but use different agent formats, model-routing mechanisms, state stores, and verification backstops.
 
-## What's new in v0.3.0 — trust the log, see the crew
+Claude v0.3.0 adds visible Codex workers, evidence-graded seat identity, deterministic helper scripts, and an executable setup runbook. See [What's new in Claude v0.3.0](docs/claude.md#whats-new-in-v030) and the [changelog](CHANGELOG.md).
 
-v0.3.0 came out of a head-to-head study against [claudemix](https://github.com/hughminhphan/claudemix), three rounds of adversarial review by OpenAI's frontier Codex model, and a day of live testing. Four things changed, all in plain English:
-
-1. **Codex workers are no longer invisible.** Before, Codex jobs ran as silent shell commands — you couldn't see them, and the foreman sat blocked while they ran. Now each Codex job rides inside a visible subagent you can watch in your harness, the foreman keeps working while it runs, and completion arrives as a notification instead of a polling loop. Measured cost: a few seconds of latency and a few cents of cheap-tier tokens per dispatch; the skill still uses direct calls for sub-minute tasks where that overhead isn't worth it.
-2. **The skill stops guessing which model actually did the work.** Runtimes can silently substitute models, and a worker's claim about its own identity tracks its prompt, not its weights (we tested this). v0.3 grades seat identity by deterministic evidence in three honesty tiers — *served* beats *routed* beats *requested* — and when no real evidence exists (today's Codex CLI emits none), the ledger says `seat: unverified` instead of pretending. No other change in this release matters more for trusting multi-model results.
-3. **Prose became scripts where prose was doing a script's job.** The Step 0 environment probe, the ledger bootstrap, and the Codex launcher are now three small POSIX shell scripts — deterministic, injection-hardened, adversarially reviewed. The launcher validates every argument and tracks the Codex process by PID so nothing runs orphaned; the probe redacts gateway URLs so secrets never land in a ledger. (The launcher's raw JSONL/stderr artifacts are not redacted — they stay on your machine under `.foreman/scratch/`.)
-4. **A setup runbook an agent can execute.** `references/setup-runbook.md` verifies the whole environment step-by-step with evidence — including an optional, consent-gated recipe for running GPT models as *native* Claude Code subagents via a local splitter, with the supply-chain and terms-of-service caveats stated honestly.
-
-**"Fable" is where it started, not what it needs.** The foreman seat is a capability class, so any frontier-class Claude runs the skill identically — Opus leads it exactly as Fable does, with the same routing tree, gates, and verification contract. That holds whether an Opus session invokes the skill directly or a Fable session falls back to Opus mid-run; the skill re-probes its own seat and carries on rather than routing off a stale identity.
+**"Fable" is where it started, not what it needs.** The foreman seat is a capability class, not a provider or dated model ID.
 
 ## Why
 
@@ -25,75 +18,30 @@ Anthropic's own engineering shows both sides of the ledger. Their [multi-agent r
 
 The difference between those two outcomes is not orchestration machinery — it's **routing judgment and verification discipline**. That's what this skill installs.
 
+## Choose a Runtime
+
+| Runtime | Coordinator | Implementation | Guide |
+| --- | --- | --- | --- |
+| GitHub Copilot | Open VS Code chat | `.github/` | [Install and runtime details](docs/github-copilot.md) |
+| Claude | Frontier-class Claude session | `skills/` + `agents/` | [Install and runtime details](docs/claude.md) |
+
+Use the guide for your runtime. The install trees are intentionally different and should not be mixed.
+
 ## What it does
 
-1. **Probes the job site** — what model is the session running, can it spawn agents, is a working Codex CLI present: binary on PATH, then `codex login status` for auth *and billing mode*, with a version-tolerant credential-file fallback if that subcommand ever changes — and no billable call, not even the functional `echo ok`, until you've consented to spending your OpenAI credits. The probe is cached, but **expires when the session model changes** — a fallback, a quota event, or a `/model` switch triggers a re-probe rather than letting the foreman route off an identity it no longer has.
-2. **Routes by capability class, not model name** — FRONTIER (judgment), WORKHORSE (implementation), FAST (scanning). Classes resolve at runtime to stable aliases and to whatever Codex tiers your account offers today. Frontier is a *class*, so any top-tier Claude leads identically, and frontier-class workers are dispatchable when parallel judgment work genuinely needs them. New model releases require zero skill updates.
-3. **Delegates with self-contained tickets** — 7 core sections plus a mandatory write-set fence on implementation work, file paths instead of pasted context, gradeable acceptance criteria.
-4. **Collects four-status reports** — `DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED` — with a bounded escalation ladder: two failures at a seat, then escalate one seat or take over. Never a third identical retry.
-5. **Verifies like it trusts no one** — the project's real build/test command first (free), then a blind verifier that gets the original task verbatim and none of the worker's reasoning. Required for every accepted change except single-file zero-logic edits. Cross-family when possible: Claude verifies Codex work and vice versa. When the verifier resolves to the same model as the lead, it says so — "blind-verified (same model, independent context)" — instead of implying independence it didn't obtain.
-6. **Respects your budget both directions** — sequential dispatch by default (prompt-cache warmth), announced fan-outs, and the degradation rule: under quota pressure it steps seats down *visibly* and prefers stopping cleanly over silently shipping degraded work. **Economics never lowers the quality bar.**
+1. **Probes the job site** — establishes the lead seat, available worker capabilities, execution environment, and runtime-specific verification options.
+2. **Routes by capability class** — FRONTIER for judgment, WORKHORSE for well-specified implementation, and FAST for scanning or mechanical work.
+3. **Delegates with bounded tickets** — gradeable outcomes, explicit constraints, file paths instead of pasted bulk context, and mandatory write sets for implementation.
+4. **Records durable outcomes** — statuses, attempts, blockers, artifacts, and routing decisions survive context loss or restart.
+5. **Verifies like it trusts no one** — deterministic project checks first, then a blind fresh-context verifier given the original task rather than the builder's narrative.
+6. **Keeps economics subordinate to quality** — sequential by default, announced fan-outs, bounded retries, and no silent downgrade below the task's quality bar.
 
 ## Install
 
-**Claude Code — recommended.** Paste this into a Claude Code session:
+- [GitHub Copilot in VS Code](docs/github-copilot.md): workspace and personal installation, worktree bootstrap, hooks, schemas, and verified capabilities.
+- [Claude](docs/claude.md): Claude Code, plugin, Claude Desktop, Codex integration, and quota behavior.
 
-```
-Install this skill globally on my machine: https://github.com/olsenbrands/fable-foreman
-```
-
-Claude clones this repo and installs two things — **both are required**:
-
-| From the repo | Goes to |
-|---|---|
-| `skills/fable-foreman/` (skill + `references/` + `scripts/`) | `~/.claude/skills/fable-foreman/` |
-| `agents/*.md` — **all four** | `~/.claude/agents/` |
-
-The skill dispatches `foreman-scout`, `foreman-worker`, `foreman-verifier`, and (v0.3) `foreman-codex-wrapper` **by name**. Install the skill without the agents and delegation and blind verification won't work — so copy both directories, not just the skill.
-
-**Claude Code (manual):** clone this repo, then:
-
-```bash
-cp -R skills/fable-foreman ~/.claude/skills/
-cp agents/*.md ~/.claude/agents/
-```
-
-<details>
-<summary><b>Claude Code (plugin) — currently broken on Windows</b></summary>
-
-```
-/plugin marketplace add olsenbrands/fable-foreman
-/plugin install fable-foreman@fable-foreman
-```
-
-Run them **one at a time** — the first only registers the marketplace, and the second prompts you for an install scope (choose **User**).
-
-**On Windows this fails** with `EPERM: operation not permitted, rename` while finalizing the marketplace cache. It's a Claude Code bug ([anthropics/claude-code#52435](https://github.com/anthropics/claude-code/issues/52435)), closed as *not planned* — so there's no fix coming. Use the paste-in method above instead; it works on every platform.
-
-</details>
-
-**Claude Desktop / claude.ai:** package the skill folder as a ZIP and upload it under Settings → Customize → Skills (requires code execution enabled; see Anthropic's current docs for plan availability):
-
-```bash
-cd skills && zip -r fable-foreman-skill.zip fable-foreman/
-```
-
-Releases on this repo will also attach a pre-built `fable-foreman-skill.zip`. That ZIP contains the skill only, not the `agents/` — which is correct for Claude Desktop (no subagents there) but means it is **not** a complete Claude Code install; for Claude Code use the paste-in or manual method above. Without the Agent tool, the skill runs in *discipline mode* — separate plan/execute/self-review passes, ledger, and status contracts on your single conversation model. That's honest same-model self-review, weaker than full mode; the skill says so rather than pretending otherwise.
-
-**Recommended:** add one line to your `CLAUDE.md` so the skill fires reliably (the [fables project](https://github.com/czlonkowski/fables) measured description-based triggering alone at only ~50–60% recall):
-
-```
-For any multi-file or multi-stage task, use the fable-foreman skill.
-```
-
-## What it needs
-
-- **For full orchestration:** Claude Code, any model — the stronger your session model, the more the economics favor delegation. Any frontier-class Claude leads the same way, so it makes no difference which one your session lands on, and a mid-run switch between them doesn't disturb the run. On claude.ai/Desktop the skill still installs and runs in discipline mode.
-- **Optional:** OpenAI Codex CLI, installed and logged in. If present — and only with your explicit OK, since it spends your OpenAI subscription or API credits — execution can route to Codex tiers, discovered from your account at runtime and chosen per task the same way Claude tiers are. If absent, everything falls back to Claude workers. Nothing breaks.
-
-## Notes on quotas
-
-Subscription users: subagent calls share your plan's quota — delegation buys *quality-per-token*, and cheaper tiers drain shared quota more slowly (some plans additionally meter cheaper tiers in larger buckets — check yours). It does not buy discounts. API users: the cost savings are direct.
+Start with the runtime guide, then invoke Fable Foreman for work whose multiple files or stages justify orchestration.
 
 ## License
 
