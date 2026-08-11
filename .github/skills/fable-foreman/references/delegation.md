@@ -1,0 +1,126 @@
+# Delegation, Redispatch, and Ledger
+
+Copilot subagents are synchronous, one-shot, and stateless. A dispatch returns one final message or an error. Continuity lives only in the worktree, `.foreman/scratch/`, and `.foreman/ledger.jsonl`.
+
+## Authority and Setup
+
+One run uses one linked worktree opened as the VS Code workspace. All roles share it, so writers are serialized unless WRITE SETs are disjoint. The coordinator alone writes the ledger and git history; workers leave source edits uncommitted.
+
+The `.foreman` symlink points to `~/.foreman/{repo}/{feature}`. Each `~/.foreman/{repo}` is a separate git repository. `scripts/foreman-init.sh` creates or adopts the worktree, checks basename collisions through `.repo-root`, creates scratch and ledger files, links the store, and locally excludes the symlink.
+
+At resume, acquire a single-writer lease before reconciliation:
+
+```bash
+python3 .github/skills/fable-foreman/scripts/ledger.py acquire \
+  --ledger .foreman/ledger.jsonl --owner <session-uuid>
+```
+
+An active different owner fails closed. A stale lease requires inspection and an explicit `--force-stale`; never steal it merely because a second coordinator wants to resume.
+
+## Tickets
+
+Use `../assets/ticket.template.md`. Every request has one objective, gradeable criteria, paths for bulk context, explicit MUST DO/MUST NOT boundaries, and a worker WRITE SET. The UUID `task_id` points to the only copy of the user's verbatim ask.
+
+Scout returns compact findings inline. Worker and verifier write only their own `output_path`. Worker and verifier self-validate role artifacts; the coordinator validates artifacts and all return envelopes again on consume.
+
+## Vocabularies
+
+Scout and worker statuses are `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, and `BLOCKED`. Verifier verdicts are `PASS`, `FAIL`, and `PASS_WITH_NOTES`. Do not mix them.
+
+The normalized `disposition` controls the next action:
+
+| Disposition | Next action |
+| --- | --- |
+| `complete` | Check evidence; implementation proceeds to coordinator checks |
+| `complete_with_concerns` | Resolve every required concern first |
+| `needs_context` | Add context and redispatch the same seat with changed input |
+| `needs_redispatch` | Reconcile partial work, then raise effort/seat or take over |
+| `blocked` | External or user-owned decision; ask immediately |
+| `failed` | Batch verifier findings into one fix wave |
+
+Every nonterminal envelope includes `redispatch`: reason, needs, attempted work, partial-state facts, artifact pointer, and a recommendation. The coordinator decides; the role only advises.
+
+## Parallel Work
+
+Sequential is default. Before any parallel wave:
+
+1. Compare exhaustive WRITE SETs, including generated files, manifests, and lockfiles.
+2. Serialize any overlap. There are no per-subagent worktrees.
+3. Append the baseline before dispatch.
+4. Do not edit while workers run.
+
+## Returned Errors and Partial Edits
+
+A failed `runSubagent` call replaces the old silent-worker timeout case. It still may have left edits:
+
+1. Append an `attempt` event with `LOST`, the surfaced error, and known paths.
+2. Diff against the baseline and inspect scratch artifacts.
+3. Revert, complete by coordinator takeover, or name retained partial work in `resume_from`.
+4. Never redispatch onto an unreconciled tree.
+
+## Retry Precedence
+
+Apply the first matching row. Every dispatch appends an attempt and consumes one of the current generation's three slots, even when a bad ticket does not count as a real seat failure.
+
+| # | Condition | Action |
+| --- | --- | --- |
+| 1 | Ticket ambiguity or missing context | Correct the ticket; same seat |
+| 2 | First real failure at this seat | Same seat with changed context, approach, or deeper effort |
+| 3 | Second real failure at this seat | Raise one class or coordinator takeover |
+| 4 | Top-seat/takeover failure or user-owned decision | Ask the user immediately |
+| 5 | Two consecutive failed fix waves on one findings list | Ask the user immediately |
+| 6 | Third unresolved attempt in this generation | Ask the user; no fourth dispatch |
+
+Escalate earlier when more attempts cannot solve credentials, permissions, an external dependency, ambiguity, or a design/scope choice. Three is a ceiling, not a target.
+
+## User Escalation
+
+Call `vscode/askQuestions` with:
+
+1. The original task and correlated issue/resolution history from the ledger.
+2. At least four options, each with concrete pros and cons.
+3. One recommended option marked recommended, with a reason.
+4. Free-form input enabled.
+
+Append an `escalation` event with trigger `early` or `cap`, attempts used, options, recommendation, and answer.
+
+- Same objective after the decision: increment `generation`, reset attempt numbering, keep `task_id` and `original_task`.
+- Changed objective: append a new `task` with a new UUID and `depends_on` the old task. Never mutate the original ask.
+
+## JSONL Event Log
+
+Each line validates against `../assets/schemas/ledger-line.schema.json` and carries a UUID `event_id` for idempotency:
+
+| Type | Purpose |
+| --- | --- |
+| `baseline` | Commit, status, raw branch, and repository root |
+| `task` | UUID, verbatim ask, optional dependency, class, initial state, owned paths |
+| `routing` | Requested/actual model, family, seat, effort, and why |
+| `attempt` | Generation, attempt, disposition, evidence, issue/resolution, redispatch, cost |
+| `escalation` | Interactive handoff and answer |
+| `decision` | Seat, capability, degradation, or consent choice |
+| `scratch` | Artifact path |
+
+Append through the validated writer:
+
+```bash
+python3 .github/skills/fable-foreman/scripts/ledger.py append \
+  --ledger .foreman/ledger.jsonl --owner <session-uuid> <event.json>
+```
+
+The writer holds an OS file lock, writes each JSON line in one append syscall, fsyncs, rejects malformed/truncated history, tolerates an identical duplicate `event_id`, and rejects a conflicting duplicate.
+
+Views are projections, not mutable state:
+
+```bash
+python3 .github/skills/fable-foreman/scripts/ledger.py view \
+  --ledger .foreman/ledger.jsonl --view tasks
+```
+
+Available views: `tasks`, `attempts`, `failures`, and `escalations`; add `--status` to filter. Replay JSONL, then trust the worktree and artifacts over stale projected state.
+
+Commit the central store repository at task completion, escalation, and run end. Release the coordinator lease only after the final ledger append and checkpoint.
+
+## Cleanup
+
+Use `scripts/foreman-init.sh --teardown <branch>` after merge/PR, cancel, failed bootstrap, or abandonment. It refuses dirty removal and retains the central audit store. Resolve dirty state or locks, retry once, then inspect `git worktree list`; never force-delete unreviewed work. Stale branches are removed only by explicit user choice.

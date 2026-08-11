@@ -1,6 +1,12 @@
 .DS_Store
 *.zip
 
+# editor / local workspace
+.vscode/
+
+# foreman run-local state (ledger + scratch)
+.foreman/
+
 # ruflo / local tooling artifacts
 .swarm/
 ruvector.db
