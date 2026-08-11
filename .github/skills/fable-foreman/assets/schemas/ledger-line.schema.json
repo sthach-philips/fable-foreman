@@ -63,6 +63,7 @@
             "git_status": {"type": "string"},
             "branch": {"type": "string", "minLength": 1},
             "repo_root": {"type": "string", "minLength": 1},
+            "workspace_mode": {"enum": ["worktree", "in_place"]},
             "ts": {"type": "string", "format": "date-time"}
           }
         }

@@ -1,12 +1,19 @@
 # Delegation, Redispatch, and Ledger
 
-Copilot subagents are synchronous, one-shot, and stateless. A dispatch returns one final message or an error. Continuity lives only in the worktree, `.foreman/scratch/`, and `.foreman/ledger.jsonl`.
+Copilot subagents are synchronous, one-shot, and stateless. A dispatch returns one final message or an error. Continuity lives only in the workspace, `.foreman/scratch/`, and `.foreman/ledger.jsonl`.
 
 ## Authority and Setup
 
-One run uses one linked worktree opened as the VS Code workspace. All roles share it, so writers are serialized unless WRITE SETs are disjoint. The coordinator alone writes the ledger and git history; workers leave source edits uncommitted.
+One run uses one opened workspace root in one of two modes:
 
-The `.foreman` symlink points to `~/.foreman/{repo}/{feature}`. Each `~/.foreman/{repo}` is a separate git repository. `scripts/foreman-init.sh` creates or adopts the worktree, checks basename collisions through `.repo-root`, creates scratch and ledger files, links the store, and locally excludes the symlink.
+- `worktree` (default, recommended): a linked worktree isolates the run. Writers are serialized unless WRITE SETs are provably disjoint.
+- `in_place` (explicit opt-in, reduced isolation): the current named branch is the run root. Setup requires a clean tree. Every worker is serialized, and the user and coordinator must not edit while a worker is active.
+
+The coordinator alone writes the ledger and git history; workers leave source edits uncommitted. In either mode, all tickets carry the selected `workspace_mode` and use paths rooted in the opened workspace.
+
+The `.foreman` symlink points to `~/.foreman/{repo}/{feature}`. Each `~/.foreman/{repo}` is a separate git repository. `scripts/foreman-init.sh` creates or adopts the worktree; `--in-place` adopts the current branch without creating one. Both check basename collisions through `.repo-root`, create scratch and ledger files, link the store, and locally exclude the symlink.
+
+An in-place resume may be dirty only when the expected `.foreman` symlink plus initialized ledger and scratch directory prove an existing run. Replay the ledger and reconcile that drift before dispatching. A new in-place run always requires a clean tree.
 
 At resume, acquire a single-writer lease before reconciliation:
 
@@ -44,10 +51,13 @@ Every nonterminal envelope includes `redispatch`: reason, needs, attempted work,
 
 Sequential is default. Before any parallel wave:
 
-1. Compare exhaustive WRITE SETs, including generated files, manifests, and lockfiles.
-2. Serialize any overlap. There are no per-subagent worktrees.
-3. Append the baseline before dispatch.
-4. Do not edit while workers run.
+1. Require `workspace_mode == worktree`; in-place mode never runs parallel workers.
+2. Compare exhaustive WRITE SETs, including generated files, manifests, and lockfiles.
+3. Serialize any overlap. There are no per-subagent worktrees.
+4. Append the baseline before dispatch.
+5. Do not edit while workers run.
+
+In in-place mode, record `HEAD` and `git status --porcelain` before every dispatch. After return, require the same `HEAD` and only the worker's expected WRITE SET changes. Any unrelated drift stops the run for user reconciliation; never auto-reset it.
 
 ## Returned Errors and Partial Edits
 
@@ -93,7 +103,7 @@ Each line validates against `../assets/schemas/ledger-line.schema.json` and carr
 
 | Type | Purpose |
 | --- | --- |
-| `baseline` | Commit, status, raw branch, and repository root |
+| `baseline` | Commit, status, raw branch, active repository root, and optional `workspace_mode` (missing means legacy `worktree`) |
 | `task` | UUID, verbatim ask, optional dependency, class, initial state, owned paths |
 | `routing` | Requested/actual model, family, seat, effort, and why |
 | `attempt` | Generation, attempt, disposition, evidence, issue/resolution, redispatch, cost |
@@ -117,10 +127,12 @@ python3 .github/skills/fable-foreman/scripts/ledger.py view \
   --ledger .foreman/ledger.jsonl --view tasks
 ```
 
-Available views: `tasks`, `attempts`, `failures`, and `escalations`; add `--status` to filter. Replay JSONL, then trust the worktree and artifacts over stale projected state.
+Available views: `tasks`, `attempts`, `failures`, and `escalations`; add `--status` to filter. Replay JSONL, then trust the workspace and artifacts over stale projected state.
 
 Commit the central store repository at task completion, escalation, and run end. Release the coordinator lease only after the final ledger append and checkpoint.
 
 ## Cleanup
 
-Use `scripts/foreman-init.sh --teardown <branch>` after merge/PR, cancel, failed bootstrap, or abandonment. It refuses dirty removal and retains the central audit store. Resolve dirty state or locks, retry once, then inspect `git worktree list`; never force-delete unreviewed work. Stale branches are removed only by explicit user choice.
+In worktree mode, use `scripts/foreman-init.sh --teardown <branch>` after merge/PR, cancel, failed bootstrap, or abandonment. It refuses dirty removal and retains the central audit store. Resolve dirty state or locks, retry once, then inspect `git worktree list`; never force-delete unreviewed work. Stale branches are removed only by explicit user choice.
+
+In in-place mode, use `scripts/foreman-init.sh --in-place --teardown`. It validates and removes only the `.foreman` symlink and retains the store, branch, and working tree.

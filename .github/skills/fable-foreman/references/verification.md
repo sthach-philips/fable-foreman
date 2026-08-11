@@ -41,6 +41,8 @@ The verifier reruns checks, grades each criterion, checks the user-visible goal,
 
 The verifier agent has enumerated read/search/check tools and no edit tool. Its agent-scoped `PreToolUse` hook calls `.github/hooks/verifier-readonly.sh` to deny common edit and mutating shell operations.
 
+Worktree and in-place modes use the same commit-before-verifier protocol. In-place mode is labeled `reduced isolation`, not reduced verification: before every worker or verifier dispatch, record `HEAD` and status; after return, reject unrelated drift. Do not reset unexpected changes because they may be concurrent user work.
+
 Hooks are preview, organization-policy controlled, and agent-scoped hooks require `chat.useCustomAgentHooks`. The hook is defense in depth, not a sandbox: an interpreter, build script, ignored path, or external process can still mutate state. If Step 0 cannot prove the hook active, record the fallback and continue only with the read-only toolset plus mutation detection.
 
 After return, require:

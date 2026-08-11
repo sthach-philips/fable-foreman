@@ -24,6 +24,7 @@ The coordinator sends one self-contained JSON ticket to a one-shot subagent:
 | --- | --- |
 | `task_id` | UUID of the `task` ledger event containing the single verbatim `original_task` |
 | `role` | `scout`, `worker`, or `verifier` |
+| `workspace_mode` | Baseline mode: `worktree` or `in_place` |
 | `objective` | This dispatch's gradeable sub-goal |
 | `context_paths` | Files or directories to read; bulk context stays on disk |
 | `constraints` | Compatibility, stack, policy, and performance boundaries |
@@ -38,7 +39,7 @@ The coordinator sends one self-contained JSON ticket to a one-shot subagent:
 | `max_attempts` | Always 3 |
 | `resume_from` | Optional prior partial artifact path |
 
-The role reads `.foreman/ledger.jsonl` to dereference `task_id` and prior attempts. It never receives a growing pasted history.
+The role reads `.foreman/ledger.jsonl` to dereference `task_id`, `workspace_mode`, and prior attempts. It never receives a growing pasted history. In-place tickets are always serialized and carry the reduced-isolation constraints from `references/delegation.md`.
 
 ## Return Envelope
 

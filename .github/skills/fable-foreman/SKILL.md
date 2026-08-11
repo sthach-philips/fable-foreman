@@ -20,10 +20,10 @@ Run once per session and again after a model change or restart:
 3. Discover picker models and family availability without guessing dated names. Record exact requested names. If actual selection is not exposed, record `model_actual: unknown` and `model_family: unknown`; never claim cross-family verification.
 4. Confirm Linux or WSL, Python 3, and `jsonschema`. Other platforms are outside v1.
 5. Check hook support. Agent-scoped hooks are preview and require `chat.useCustomAgentHooks`. If the hook cannot be proven active in a fresh session, record fallback mode: verifier read-only toolset plus post-verification mutation detection.
-6. Inspect the workspace. The run must use one opened linked worktree named `../{repo}.worktrees/{feature}`. Prefer VS Code's Worktrees commands; otherwise offer `./scripts/foreman-init.sh <branch>`.
-7. The user creates or selects the worktree and reopens the session there. Do not rewrite workspace files silently. On restart, resolve `.foreman` to `~/.foreman/{repo}/{feature}`, acquire the coordinator lease, replay `ledger.jsonl`, then reconcile it with `HEAD`, status, and artifacts before dispatching.
+6. Inspect the workspace and ask the user to select `worktree` (recommended) or `in_place` (reduced isolation). Record explicit consent and `workspace_mode` in the baseline. Worktree mode uses `../{repo}.worktrees/{feature}`; prefer VS Code's Worktrees commands, otherwise offer `./scripts/foreman-init.sh <branch>`. In-place mode requires a named current branch and a clean tree, then runs `./scripts/foreman-init.sh --in-place`.
+7. In worktree mode, the user opens the worktree and restarts the session. In in-place mode, continue in the current workspace without restart. Resolve `.foreman` to `~/.foreman/{repo}/{feature}`, acquire the coordinator lease, replay `ledger.jsonl`, then reconcile it with `HEAD`, status, and artifacts before dispatching.
 
-Use `vscode/askQuestions` for worktree choice or blockers. Absolute paths are allowed before restart, but full search and diagnostics require the worktree as the opened folder.
+Use `vscode/askQuestions` for workspace-mode choice or blockers. Absolute paths are allowed before a worktree restart, but full search and diagnostics require the execution root as the opened folder.
 
 | Capability | Mode | Assurance |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ Resolve exact live picker names and premium multipliers with [routing.md](./refe
 
 Before delegation, acquire the ledger lease and append the baseline plus one `task` event per UUID. Store the user's ask verbatim only on that task event. Build tickets from [ticket.template.md](./assets/ticket.template.md); schemas and examples live in [contracts.md](./assets/contracts.md).
 
-Dispatch sequentially by default. Parallel workers share one tree, so parallel tickets require provably disjoint WRITE SETs, including manifests, lockfiles, and generated outputs.
+Dispatch sequentially by default. Worktree mode permits parallel workers only with provably disjoint WRITE SETs, including manifests, lockfiles, and generated outputs. In-place mode serializes every worker dispatch.
 
 <authority_model>
 
@@ -85,4 +85,5 @@ Treat every report as a claim:
 4. Synthesize reports; never paste subagent output through raw.
 5. A third unresolved attempt in one generation always goes to the user. No fourth attempt exists.
 6. Teardown runs after merge/PR and on cancel, failed bootstrap, or abandonment. Retain the central store audit history; remove worktrees only after clean-status review.
+7. In-place mode requires explicit consent, a clean baseline, serialized workers, and unchanged `HEAD` plus expected status around every dispatch. Unexpected drift stops the run; never reset concurrent user work.
 </hard_rails>

@@ -20,7 +20,7 @@ subagent. The coordinator selects a model per dispatch through `runSubagent`.
 
 - VS Code with GitHub Copilot custom agents, skills, and `runSubagent` support.
 - Linux or WSL. Windows-native and macOS are outside v1.
-- Git worktrees.
+- Git with worktree support for the recommended worktree mode.
 - Python 3 with `jsonschema`:
 
 ```bash
@@ -63,24 +63,51 @@ unless a fresh-session probe proves it fired.
 
 1. Start with a top-tier lead model when the task needs FRONTIER judgment. A
    subagent cannot exceed the parent model's cost tier.
-2. Create a linked worktree through Source Control -> Worktrees -> Create
-   Worktree, or run:
+2. Choose a workspace mode. A linked worktree is recommended; in-place mode is
+  an explicit reduced-isolation option.
 
-   ```bash
-   .github/skills/fable-foreman/scripts/foreman-init.sh feature/my-change
-   ```
+### Worktree Mode
 
-3. Open the printed `../{repo}.worktrees/{feature}` path as the workspace and
-   restart the chat there. The script creates a git-excluded `.foreman` symlink
-   to `~/.foreman/{repo}/{feature}`.
-4. Resume `/fable-foreman`. The coordinator replays `ledger.jsonl`, reconciles
-   the tree, acquires the single-writer lease, and dispatches one-shot agents.
-5. After merge, PR, cancellation, failed bootstrap, or abandonment, inspect
-   status and remove the worktree:
+Create a linked worktree through Source Control -> Worktrees -> Create
+Worktree, or run:
 
-   ```bash
-   .github/skills/fable-foreman/scripts/foreman-init.sh --teardown feature/my-change
-   ```
+```bash
+.github/skills/fable-foreman/scripts/foreman-init.sh feature/my-change
+```
+
+Open the printed `../{repo}.worktrees/{feature}` path as the workspace and
+restart the chat there. Resume `/fable-foreman`; the coordinator replays the
+ledger, reconciles the tree, and acquires the lease.
+
+After merge, PR, cancellation, failed bootstrap, or abandonment, inspect status
+and remove the worktree:
+
+```bash
+.github/skills/fable-foreman/scripts/foreman-init.sh --teardown feature/my-change
+```
+
+### In-Place Mode
+
+Start from a named branch with a clean working tree, explicitly accept reduced
+isolation, and run:
+
+```bash
+.github/skills/fable-foreman/scripts/foreman-init.sh --in-place
+```
+
+No worktree or restart is created. All workers are serialized. The user and
+coordinator must not edit while a worker runs, and unexpected `HEAD` or status
+drift stops the run for manual reconciliation.
+
+First setup requires a clean tree. On restart, the initializer permits a dirty
+tree only when the expected symlink, ledger, and scratch directory prove an
+existing run; the coordinator must reconcile that state before dispatching.
+
+Teardown removes only the validated symlink:
+
+```bash
+.github/skills/fable-foreman/scripts/foreman-init.sh --in-place --teardown
+```
 
 The central `~/.foreman/{repo}` repository remains as the orchestration audit
 history.
